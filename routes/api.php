@@ -1,0 +1,63 @@
+<?php
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\ProgramController;
+use App\Http\Controllers\LogController;
+use App\Http\Controllers\CacaoTreeController;
+use App\Http\Controllers\FarmController;
+use App\Http\Controllers\HealthLogController;
+use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\PredictionController;
+use App\Http\Controllers\WeatherController;
+
+
+
+Route::post('/register', [AuthController::class, 'register']);
+Route::post('/login', [AuthController::class, 'login']);
+
+Route::get('/logs', [LogController::class, 'index']);
+
+// Route::middleware('auth:sanctum')->group(function () {
+//     Route::post('programs', [ProgramController::class, 'store']);
+//     Route::post('/logout', [AuthController::class, 'logout']);
+//     Route::get('programs', [ProgramController::class, 'index']);
+//     Route::get('programs/{id}', [ProgramController::class, 'show']);
+//     Route::put('programs/{id}', [ProgramController::class, 'update']);
+//     Route::delete('programs/{id}', [ProgramController::class, 'destroy']);
+// });
+
+Route::middleware('auth:sanctum')->group(function(){
+    Route::get('/profile',[AuthController::class,'profile']);
+    Route::post('/logout',[AuthController::class,'logout']);
+
+    // Farms
+    Route::get('/farms',[FarmController::class,'index']);
+    Route::post('/farms',[FarmController::class,'store']);
+    Route::get('/farms/{farm}',[FarmController::class,'show']);
+    Route::put('/farms/{farm}',[FarmController::class,'update']);
+    Route::delete('/farms/{farm}',[FarmController::class,'destroy']);
+
+    // Cacao Trees
+    Route::get('/farms/{farm}/cacao-trees',[CacaoTreeController::class,'index']);
+    Route::post('/farms/{farm}/cacao-trees',[CacaoTreeController::class,'store']);
+    Route::get('/cacao-trees/{cacaoTree}',[CacaoTreeController::class,'show']);
+    Route::put('/cacao-trees/{cacaoTree}',[CacaoTreeController::class,'update']);
+    Route::delete('/cacao-trees/{cacaoTree}',[CacaoTreeController::class,'destroy']);
+
+    // Health logs
+    Route::post('/cacao-trees/{cacaoTree}/health-logs',[HealthLogController::class,'store']);
+    Route::get('/cacao-trees/{cacaoTree}/health-logs',[HealthLogController::class,'index']);
+
+    // Predictions
+    Route::post('/predict', [PredictionController::class, 'predict']);
+    Route::get('/farms/{farm}/predictions',[PredictionController::class,'index']);
+
+    // Weather
+    Route::get('/farms/{farm}/weather/fetch',[WeatherController::class,'fetchWeather']);
+    Route::get('/farms/{farm}/weather/recent',[WeatherController::class,'recent']);
+
+    // Notifications
+    Route::get('/notifications',[NotificationController::class,'index']);
+});
