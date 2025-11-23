@@ -6,11 +6,17 @@ use App\Models\CacaoTree;
 use App\Models\Farm;
 use Illuminate\Http\Request;
 
+
 class CacaoTreeController extends Controller
 {
     public function index(Farm $farm)
     {
-        return response()->json($farm->cacaoTrees()->with('healthLogs', 'predictionLogs')->get());
+        //gumagana din to
+        // $trees = CacaoTree::with('latestLog')->get();
+        // return response()->json($trees);
+
+        return \App\Models\CacaoTree::with('latestLog')->get();
+        // return response()->json($farm->cacaoTrees()->with('healthLogs', 'predictionLogs')->get());
     }
     public function store(Request $r, Farm $farm)
     {

@@ -11,8 +11,9 @@ use App\Http\Controllers\HealthLogController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PredictionController;
 use App\Http\Controllers\WeatherController;
-
-
+use App\Http\Controllers\GPredictionController;
+use App\Http\Controllers\TreeLogController;
+use App\Models\TreeMonitoringLogs;
 
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
@@ -28,36 +29,55 @@ Route::get('/logs', [LogController::class, 'index']);
 //     Route::delete('programs/{id}', [ProgramController::class, 'destroy']);
 // });
 
-Route::middleware('auth:sanctum')->group(function(){
-    Route::get('/profile',[AuthController::class,'profile']);
-    Route::post('/logout',[AuthController::class,'logout']);
+Route::middleware('auth:sanctum')->group(function () {
+
+    // We pass the Tree ID (e.g., 1) in the URL so we know which tree is being monitored
+    Route::post('/trees/{tree}/logs', [TreeLogController::class, 'store']);
+
+
+    Route::get('/profile', [AuthController::class, 'profile']);
+    Route::post('/logout', [AuthController::class, 'logout']);
 
     // Farms
-    Route::get('/farms',[FarmController::class,'index']);
-    Route::post('/farms',[FarmController::class,'store']);
-    Route::get('/farms/{farm}',[FarmController::class,'show']);
-    Route::put('/farms/{farm}',[FarmController::class,'update']);
-    Route::delete('/farms/{farm}',[FarmController::class,'destroy']);
+    Route::get('/farms', [FarmController::class, 'index']);
+    Route::post('/farms', [FarmController::class, 'store']);
+    Route::get('/farms/{farm}', [FarmController::class, 'show']);
+    Route::put('/farms/{farm}', [FarmController::class, 'update']);
+    Route::delete('/farms/{farm}', [FarmController::class, 'destroy']);
 
     // Cacao Trees
-    Route::get('/farms/{farm}/cacao-trees',[CacaoTreeController::class,'index']);
-    Route::post('/farms/{farm}/cacao-trees',[CacaoTreeController::class,'store']);
-    Route::get('/cacao-trees/{cacaoTree}',[CacaoTreeController::class,'show']);
-    Route::put('/cacao-trees/{cacaoTree}',[CacaoTreeController::class,'update']);
-    Route::delete('/cacao-trees/{cacaoTree}',[CacaoTreeController::class,'destroy']);
+    Route::get('/farms/{farm}/cacao-trees', [CacaoTreeController::class, 'index']);
+    Route::post('/farms/{farm}/cacao-trees', [CacaoTreeController::class, 'store']);
+    Route::get('/cacao-trees/{cacaoTree}', [CacaoTreeController::class, 'show']);
+    Route::put('/cacao-trees/{cacaoTree}', [CacaoTreeController::class, 'update']);
+    Route::delete('/cacao-trees/{cacaoTree}', [CacaoTreeController::class, 'destroy']);
 
     // Health logs
-    Route::post('/cacao-trees/{cacaoTree}/health-logs',[HealthLogController::class,'store']);
-    Route::get('/cacao-trees/{cacaoTree}/health-logs',[HealthLogController::class,'index']);
+    Route::post('/cacao-trees/{cacaoTree}/health-logs', [HealthLogController::class, 'store']);
+    Route::get('/cacao-trees/{cacaoTree}/health-logs', [HealthLogController::class, 'index']);
 
     // Predictions
     Route::post('/predict', [PredictionController::class, 'predict']);
-    Route::get('/farms/{farm}/predictions',[PredictionController::class,'index']);
+    Route::get('/farms/{farm}/predictions', [PredictionController::class, 'index']);
+
+
+
+
+    //Gemini Prediction
+    Route::post('/detect-disease', [GPredictionController::class, 'predict']);
+    Route::post('/detect-disease', [GPredictionController::class, 'detectAndLog']);
+    Route::post('/trees/{tree}/inventory', [TreeLogController::class, 'updateInventory']);
+
+
+
+
+
+    Route::post('/disease', [PredictionController::class, 'detectAndLog']);
 
     // Weather
-    Route::get('/farms/{farm}/weather/fetch',[WeatherController::class,'fetchWeather']);
-    Route::get('/farms/{farm}/weather/recent',[WeatherController::class,'recent']);
+    Route::get('/farms/{farm}/weather/fetch', [WeatherController::class, 'fetchWeather']);
+    Route::get('/farms/{farm}/weather/recent', [WeatherController::class, 'recent']);
 
     // Notifications
-    Route::get('/notifications',[NotificationController::class,'index']);
+    Route::get('/notifications', [NotificationController::class, 'index']);
 });

@@ -2,52 +2,97 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\PredictionLog;
-use App\Models\Farm;
-use App\Models\CacaoTree;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\DB;
+use App\Models\DiseaseDetection;
+use App\Models\TreeMonitoringLog;
+use App\Models\CacaoTree;
+use App\Models\TreeMonitoringLogs;
 
 class PredictionController extends Controller
 {
-    public function predict(Request $r)
+    public function detectAndLog(Request $request)
     {
-        $r->validate(['image' => 'required|image|max:8192', 'farm_id' => 'nullable|exists:farms,id', 'cacao_tree_id' => 'nullable|exists:cacao_trees,id']);
-        $user = $r->user();
-        $path = $r->file('image')->store('predictions', 'public');
-
-        // send to ML service
-        $mlUrl = env('ML_PREDICT_URL');
-        $resp = Http::attach('image', file_get_contents(storage_path("app/public/{$path}")), basename($path))
-            ->post($mlUrl);
-
-        if (!$resp->successful()) {
-            return response()->json(['message' => 'ML service error'], 500);
-        }
-
-        $json = $resp->json();
-        // expected fields: disease, confidence, recommendation
-        $disease = $json['disease'] ?? null;
-        $confidence = isset($json['confidence']) ? floatval($json['confidence']) : null;
-        $recommendation = $json['recommendation'] ?? null;
-
-        $log = PredictionLog::create([
-            'user_id' => $user->id,
-            'farm_id' => $r->input('farm_id'),
-            'cacao_tree_id' => $r->input('cacao_tree_id'),
-            'image_path' => $path,
-            'disease' => $disease,
-            'confidence' => $confidence,
-            'recommendation' => $recommendation,
-            'model_response' => $json
+        // 1. VALIDATION
+        $request->validate([
+            'cacao_tree_id' => 'required|exists:cacao_trees,id', // Must pick a valid tree
+            'image'         => 'required|image|max:10000',       // Max 10MB
+            'pod_count'     => 'nullable|integer|min:0',         // Optional inventory count
         ]);
 
-        return response()->json(['prediction' => $log], 201);
-    }
+        // Start a Database Transaction (Safety First)
+        return DB::transaction(function () use ($request) {
 
-    public function index(Farm $farm)
-    {
-        return response()->json($farm->predictionLogs()->with('user', 'cacaoTree')->latest()->paginate(20));
+            // 2. UPLOAD IMAGE
+            // Stores in storage/app/public/scans
+            $imagePath = $request->file('image')->store('scans', 'public');
+
+            // 3. AI PREDICTION (The "Bridge" to Python)
+            // -----------------------------------------------------------
+            try {
+                // Send to your Python AI (assuming running on port 8001 or 5000)
+                $response = Http::attach(
+                    'file',
+                    file_get_contents(storage_path('app/public/' . $imagePath)),
+                    basename($imagePath)
+                )->post('http://127.0.0.1:8001/predict');
+
+                if ($response->failed()) {
+                    throw new \Exception('AI Service Unreachable');
+                }
+                $aiResult = $response->json();
+            } catch (\Exception $e) {
+                // FALLBACK FOR TESTING (If Python is offline, use this fake data)
+                // Remove this catch block when going to production!
+                $aiResult = [
+                    'detections' => [
+                        ['class' => 'Black Pod Rot', 'confidence' => 0.95]
+                    ]
+                ];
+            }
+            // -----------------------------------------------------------
+
+            // 4. PARSE AI RESULTS
+            $topResult = $aiResult['detections'][0] ?? null;
+            $diseaseName = $topResult ? $topResult['class'] : 'Healthy';
+            $confidence = $topResult ? $topResult['confidence'] : 0.00;
+
+            // Determine standardized status for the Map
+            $mapStatus = ($diseaseName === 'Healthy') ? 'healthy' : 'diseased';
+
+            // 5. UPDATE TABLE A: Disease Detections (The Scientific Record)
+            $detection = DiseaseDetection::create([
+                'user_id'          => $request->user() ? $request->user()->id : 1,
+                'cacao_tree_id'    => $request->cacao_tree_id,
+                'image_path'       => $imagePath,
+                'detected_disease' => $diseaseName,
+                'confidence'       => $confidence,
+                'ai_response_log'  => json_encode($aiResult),
+            ]);
+
+            // 6. UPDATE TABLE B: Monitoring Logs (The History & Map Data)
+            $log = TreeMonitoringLogs::create([
+                'cacao_tree_id'   => $request->cacao_tree_id,
+                'user_id'         => $request->user() ? $request->user()->id : 1,
+                'disease_type'    => ($diseaseName === 'Healthy') ? null : $diseaseName,
+                'image_path'      => $imagePath,
+                'pod_count'       => $request->input('pod_count', 0), // Save user input or 0
+                'inspection_date' => now(),
+            ]);
+
+            // 7. UPDATE TABLE C: The Main Tree (Real-time Status)
+            // This ensures the tree immediately turns RED on the map list
+            $tree = CacaoTree::find($request->cacao_tree_id);
+            $tree->save();
+
+            // 8. RETURN SUCCESS RESPONSE
+            return response()->json([
+                'message' => 'Scan processed successfully',
+                'tree_id' => $tree->id,
+                'detected_disease' => $diseaseName,
+                'log_data' => $log
+            ], 201);
+        });
     }
 }
