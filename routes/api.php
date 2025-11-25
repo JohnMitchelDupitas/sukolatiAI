@@ -20,14 +20,14 @@ Route::post('/login', [AuthController::class, 'login']);
 
 Route::get('/logs', [LogController::class, 'index']);
 
-// Route::middleware('auth:sanctum')->group(function () {
-//     Route::post('programs', [ProgramController::class, 'store']);
-//     Route::post('/logout', [AuthController::class, 'logout']);
-//     Route::get('programs', [ProgramController::class, 'index']);
-//     Route::get('programs/{id}', [ProgramController::class, 'show']);
-//     Route::put('programs/{id}', [ProgramController::class, 'update']);
-//     Route::delete('programs/{id}', [ProgramController::class, 'destroy']);
-// });
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('programs', [ProgramController::class, 'store']);
+    Route::post('/logout', [AuthController::class, 'logout']);
+    Route::get('programs', [ProgramController::class, 'index']);
+    Route::get('programs/{id}', [ProgramController::class, 'show']);
+    Route::put('programs/{id}', [ProgramController::class, 'update']);
+    Route::delete('programs/{id}', [ProgramController::class, 'destroy']);
+});
 
 Route::middleware('auth:sanctum')->group(function () {
 
@@ -67,6 +67,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/detect-disease', [GPredictionController::class, 'predict']);
     Route::post('/detect-disease', [GPredictionController::class, 'detectAndLog']);
     Route::post('/trees/{tree}/inventory', [TreeLogController::class, 'updateInventory']);
+
+    //mapping of tree
+    Route::post('/trees', [CacaoTreeController::class, 'store']); // Register a tree
+    Route::get('/trees', [CacaoTreeController::class, 'index']);  // Get all trees (for map)
+    Route::get('/trees/{cacaoTree}', [CacaoTreeController::class, 'show']); // Get specific tree details
+    Route::put('/trees/{cacaoTree}', [CacaoTreeController::class, 'update']); // Update tree
+    Route::delete('/trees/{cacaoTree}', [CacaoTreeController::class, 'destroy']); // Delete tree
+
+    //update pods
+Route::put('/trees/{id}/pods', [App\Http\Controllers\CacaoTreeController::class, 'updatePods']);
+
 
 
 

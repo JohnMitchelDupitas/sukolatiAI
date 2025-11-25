@@ -10,6 +10,45 @@ use App\Models\TreeMonitoringLogs;
 
 class GPredictionController extends Controller
 {
+    /**
+     * Get prescriptive treatment recommendations based on disease
+     */
+    private function getPrescriptiveAction($disease)
+    {
+        // Normalize string to lowercase for safe comparison
+        $d = strtolower($disease);
+
+        if (str_contains($d, 'black')) {
+            return "Immediate Action: Remove and bury all infected pods immediately to stop spores from spreading. " .
+                   "Cultural: Improve air circulation by pruning the tree canopy (reduce shade). Improve drainage in the farm. " .
+                   "Chemical: Apply Copper-based fungicides (e.g., Bordeaux mixture) every 2-4 weeks during the rainy season.";
+        }
+
+        if (str_contains($d, 'frosty') || str_contains($d, 'roreri')) {
+            return "CRITICAL: Do NOT transport infected pods. Remove pods before the white dust (spores) appears. " .
+                   "Disposal: Cover infected pods with plastic on the ground or bury them deep to prevent spore release. " .
+                   "Maintenance: Perform weekly phytosanitary pruning. Fungicides are generally ineffective once infection starts; prevention is key.";
+        }
+
+        if (str_contains($d, 'witch') || str_contains($d, 'broom') || str_contains($d, 'perniciosa')) {
+            return "Pruning: Prune and burn all 'broom-like' vegetative shoots (infected branches) and infected pods. " .
+                   "Timing: Prune during dry periods to reduce reinfection risks. " .
+                   "Long-term: Consider grafting with resistant clones if the tree is severely affected.";
+        }
+
+        if (str_contains($d, 'borer') || str_contains($d, 'carmenta') || str_contains($d, 'pod borer')) {
+            return "Mechanical: Implement 'Sleeving' (bagging) of young pods (2-3 months old) using plastic bags to prevent moths from laying eggs. " .
+                   "Sanitation: Harvest ripe pods regularly. Remove and bury infested pods to kill larvae inside. " .
+                   "Biological: Encourage natural enemies (ants/wasps) or use pheromone traps.";
+        }
+
+        if (str_contains($d, 'healthy')) {
+            return "Maintenance: Continue regular monitoring. Ensure proper fertilization (NPK) to maintain tree immunity. " .
+                   "Prevention: Keep the area around the tree base clean (weeding) and maintain 3x3 meter spacing.";
+        }
+
+        return "Consult an expert or local agricultural technician for specific treatment recommendations.";
+    }
     public function detectAndLog(Request $request)
     {
         $request->validate([
@@ -37,6 +76,7 @@ class GPredictionController extends Controller
             $finalStatus = $preservedStatus;
             $finalDisease = $preservedDisease;
             $imagePath = null;
+            $confidence = 0.00;
 
             if ($request->hasFile('image')) {
                 $imagePath = $request->file('image')->store('scans', 'public');
@@ -55,24 +95,26 @@ class GPredictionController extends Controller
                     $aiResult = ['detections' => [['class' => 'Black Pod Rot', 'confidence' => 0.95]]];
                 }
 
-                $topResult = $aiResult['detections'][0] ?? null;
-                $diseaseName = $topResult ? $topResult['class'] : 'Healthy';
+            $topResult = $aiResult['detections'][0] ?? null;
+            $diseaseName = $topResult ? $topResult['class'] : 'Healthy';
+            $confidence = $topResult ? $topResult['confidence'] : 0.00;
 
-                $finalStatus = ($diseaseName === 'Healthy') ? 'healthy' : 'diseased';
-                $finalDisease = ($diseaseName === 'Healthy') ? null : $diseaseName;
+            $finalStatus = ($diseaseName === 'Healthy') ? 'healthy' : 'diseased';
+            $finalDisease = ($diseaseName === 'Healthy') ? null : $diseaseName;
 
-                // Save Detection Evidence
-                DiseaseDetection::create([
-                    'user_id' => $request->user() ? $request->user()->id : 1,
-                    'cacao_tree_id' => $request->cacao_tree_id,
-                    'image_path' => $imagePath,
-                    'detected_disease' => $diseaseName,
-                    'confidence' => $topResult ? $topResult['confidence'] : 0.00,
-                    'ai_response_log' => json_encode($aiResult),
-                ]);
-            }
+            // ✅ GET THE TREATMENT RECOMMENDATION
+            $treatment = $this->getPrescriptiveAction($diseaseName);
 
-            // -------------------------------------------------------
+            // Save Detection Evidence
+            DiseaseDetection::create([
+                'user_id' => $request->user() ? $request->user()->id : 1,
+                'cacao_tree_id' => $request->cacao_tree_id,
+                'image_path' => $imagePath,
+                'detected_disease' => $diseaseName,
+                'confidence' => $topResult ? $topResult['confidence'] : 0.00,
+                'ai_response_log' => json_encode($aiResult),
+            ]);
+        }            // -------------------------------------------------------
             // STEP 3: RESOLVE POD COUNT
             // -------------------------------------------------------
             $finalPodCount = $preservedCount;
@@ -100,7 +142,9 @@ class GPredictionController extends Controller
             return response()->json([
                 'message' => 'Tree Log Updated',
                 'new_status' => $finalStatus,
-                'data' => $log
+                'data' => $log,
+                'ai_confidence' => $confidence,
+                'treatment' => $treatment
             ], 201);
         });
     }

@@ -20,7 +20,10 @@ class CacaoTree extends Model
         'variety',
         'date_planted',
         'latitude',
-        'longitude'
+        'longitude',
+        'pod_count',
+        'status',
+        'growth_stage'
     ];
     public function farm()
     {
