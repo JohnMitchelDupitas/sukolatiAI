@@ -5,15 +5,23 @@ namespace App\Http\Controllers;
 use App\Models\CacaoTree;
 use App\Models\Farm;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
+
 
 class CacaoTreeController extends Controller
 {
     public function index(Request $request)
     {
-        // 1. OPTIONAL: Filter by Farm ID if provided in the query URL
-        // e.g. /api/trees?farm_id=5
-        $query = CacaoTree::with('latestLog'); // Eager load logs if you have that relationship
+        // Get the authenticated user
+        $user = Auth::user();
 
+        // 1. Get only trees from user's farms
+        $query = CacaoTree::with('latestLog')
+            ->whereIn('farm_id', $user->farms()->pluck('id'));
+
+        // 2. OPTIONAL: Filter by Farm ID if provided in the query URL
+        // e.g. /api/trees?farm_id=5
         if ($request->has('farm_id')) {
             $query->where('farm_id', $request->farm_id);
         }
@@ -101,6 +109,42 @@ class CacaoTreeController extends Controller
         return response()->json([
             'message' => 'Pod count updated successfully',
             'tree' => $tree
+        ]);
+    }
+
+    public function dashboardStats(Request $request)
+    {
+        // 1. Filter by Farm (optional)
+        $query = \App\Models\CacaoTree::query();
+        if ($request->has('farm_id')) {
+            $query->where('farm_id', $request->farm_id);
+        }
+
+        // 2. Calculate Inventory Metrics
+        $totalTrees = $query->count();
+
+        $totalPods = $query->sum('pod_count');
+
+        // Estimate Yield (Assumption: 1 pod = 0.04 kg of dried beans - adjust this value)
+        $estimatedYieldKg = $totalPods * 0.04;
+
+        $healthStats = $query->select('status', DB::raw('count(*) as total'))
+            ->groupBy('status')
+            ->get();
+
+        // 4. Variety Breakdown (Bar Chart Data)
+        $varietyStats = $query->select('variety', DB::raw('count(*) as total'))
+            ->groupBy('variety')
+            ->get();
+
+        return response()->json([
+            'summary' => [
+                'total_trees' => $totalTrees,
+                'total_pods'  => $totalPods,
+                'estimated_yield_kg' => round($estimatedYieldKg, 2),
+            ],
+            'health_breakdown' => $healthStats,
+            'variety_inventory' => $varietyStats
         ]);
     }
 }

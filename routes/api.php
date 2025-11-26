@@ -13,6 +13,8 @@ use App\Http\Controllers\PredictionController;
 use App\Http\Controllers\WeatherController;
 use App\Http\Controllers\GPredictionController;
 use App\Http\Controllers\TreeLogController;
+use App\Http\Controllers\InventoryController;
+use App\Http\Controllers\HarvestController;
 use App\Models\TreeMonitoringLogs;
 
 Route::post('/register', [AuthController::class, 'register']);
@@ -20,16 +22,19 @@ Route::post('/login', [AuthController::class, 'login']);
 
 Route::get('/logs', [LogController::class, 'index']);
 
-Route::middleware('auth:sanctum')->group(function () {
-    Route::post('programs', [ProgramController::class, 'store']);
-    Route::post('/logout', [AuthController::class, 'logout']);
-    Route::get('programs', [ProgramController::class, 'index']);
-    Route::get('programs/{id}', [ProgramController::class, 'show']);
-    Route::put('programs/{id}', [ProgramController::class, 'update']);
-    Route::delete('programs/{id}', [ProgramController::class, 'destroy']);
-});
+// Route::middleware('auth:sanctum')->group(function () {
+//     Route::post('programs', [ProgramController::class, 'store']);
+//     Route::post('/logout', [AuthController::class, 'logout']);
+//     Route::get('programs', [ProgramController::class, 'index']);
+//     Route::get('programs/{id}', [ProgramController::class, 'show']);
+//     Route::put('programs/{id}', [ProgramController::class, 'update']);
+//     Route::delete('programs/{id}', [ProgramController::class, 'destroy']);
+// });
 
 Route::middleware('auth:sanctum')->group(function () {
+
+    // Dashboard & Inventory
+    Route::get('/inventory/dashboard', [InventoryController::class, 'dashboard']);
 
     // We pass the Tree ID (e.g., 1) in the URL so we know which tree is being monitored
     Route::post('/trees/{tree}/logs', [TreeLogController::class, 'store']);
@@ -53,12 +58,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/cacao-trees/{cacaoTree}', [CacaoTreeController::class, 'destroy']);
 
     // Health logs
-    Route::post('/cacao-trees/{cacaoTree}/health-logs', [HealthLogController::class, 'store']);
-    Route::get('/cacao-trees/{cacaoTree}/health-logs', [HealthLogController::class, 'index']);
+    // Route::post('/cacao-trees/{cacaoTree}/health-logs', [HealthLogController::class, 'store']);
+    // Route::get('/cacao-trees/{cacaoTree}/health-logs', [HealthLogController::class, 'index']);
 
-    // Predictions
-    Route::post('/predict', [PredictionController::class, 'predict']);
-    Route::get('/farms/{farm}/predictions', [PredictionController::class, 'index']);
+    // // Predictions
+    // Route::post('/predict', [PredictionController::class, 'predict']);
+    // Route::get('/farms/{farm}/predictions', [PredictionController::class, 'index']);
 
 
 
@@ -76,19 +81,24 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/trees/{cacaoTree}', [CacaoTreeController::class, 'destroy']); // Delete tree
 
     //update pods
-Route::put('/trees/{id}/pods', [App\Http\Controllers\CacaoTreeController::class, 'updatePods']);
+    Route::put('/trees/{id}/pods', [App\Http\Controllers\CacaoTreeController::class, 'updatePods']);
+
+    // Harvest Logs
+    Route::post('/harvest', [HarvestController::class, 'store']); // Create a new harvest log
+    Route::get('/harvest', [HarvestController::class, 'index']); // Get all user's harvest logs
+    Route::get('/harvest/tree/{treeId}', [HarvestController::class, 'getByTree']); // Get harvest logs for specific tree
 
 
 
 
 
 
-    Route::post('/disease', [PredictionController::class, 'detectAndLog']);
+    // Route::post('/disease', [PredictionController::class, 'detectAndLog']);
 
-    // Weather
-    Route::get('/farms/{farm}/weather/fetch', [WeatherController::class, 'fetchWeather']);
-    Route::get('/farms/{farm}/weather/recent', [WeatherController::class, 'recent']);
+    // // Weather
+    // Route::get('/farms/{farm}/weather/fetch', [WeatherController::class, 'fetchWeather']);
+    // Route::get('/farms/{farm}/weather/recent', [WeatherController::class, 'recent']);
 
-    // Notifications
-    Route::get('/notifications', [NotificationController::class, 'index']);
+    // // Notifications
+    // Route::get('/notifications', [NotificationController::class, 'index']);
 });
