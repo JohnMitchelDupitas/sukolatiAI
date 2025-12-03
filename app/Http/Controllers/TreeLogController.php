@@ -24,15 +24,21 @@ class TreeLogController extends Controller
             $imagePath = $request->file('image')->store('disease_reports', 'public');
         }
 
-        // 3. Create the Log
+        // 3. Create the Log (main table only - image_path is in metadata table)
         $log = \App\Models\TreeMonitoringLogs::create([
             'cacao_tree_id' => $treeId,
             'user_id' => $request->user_id, // For Postman testing, send this manually
             'status' => $request->status,
             'disease_type' => $request->disease_type,
-            'image_path' => $imagePath,
             'inspection_date' => $request->inspection_date,
         ]);
+
+        // 4. Create metadata record if there's an image
+        if ($imagePath) {
+            $log->metadata()->create([
+                'image_path' => $imagePath,
+            ]);
+        }
 
         return response()->json(['message' => 'Log created', 'data' => $log], 201);
     }
@@ -55,7 +61,7 @@ class TreeLogController extends Controller
         $preservedStatus = $lastLog ? $lastLog->status : 'healthy';
         $preservedDisease = $lastLog ? $lastLog->disease_type : null;
 
-        // 3. Create the new log (Update Count, Keep Disease)
+        // 3. Create the new log (Update Count, Keep Disease) - no image_path in main table
         $log = \App\Models\TreeMonitoringLogs::create([
             'cacao_tree_id'   => $treeId,
             'user_id'         => $request->user() ? $request->user()->id : 1,
@@ -67,7 +73,6 @@ class TreeLogController extends Controller
             // PASTE THE NEW DATA HERE
             'pod_count'       => $request->pod_count,
 
-            'image_path'      => null, // No new image for a count update
             'inspection_date' => now(),
         ]);
 

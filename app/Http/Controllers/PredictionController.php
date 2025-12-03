@@ -57,7 +57,6 @@ class PredictionController extends Controller
             $topResult = $aiResult['detections'][0] ?? null;
             $diseaseName = $topResult ? $topResult['class'] : 'Healthy';
             $confidence = $topResult ? $topResult['confidence'] : 0.00;
-
             // Determine standardized status for the Map
             $mapStatus = ($diseaseName === 'Healthy') ? 'healthy' : 'diseased';
 
@@ -76,10 +75,16 @@ class PredictionController extends Controller
                 'cacao_tree_id'   => $request->cacao_tree_id,
                 'user_id'         => $request->user() ? $request->user()->id : 1,
                 'disease_type'    => ($diseaseName === 'Healthy') ? null : $diseaseName,
-                'image_path'      => $imagePath,
                 'pod_count'       => $request->input('pod_count', 0), // Save user input or 0
                 'inspection_date' => now(),
             ]);
+
+            // Create metadata with image if available
+            if ($imagePath) {
+                $log->metadata()->create([
+                    'image_path' => $imagePath,
+                ]);
+            }
 
             // 7. UPDATE TABLE C: The Main Tree (Real-time Status)
             // This ensures the tree immediately turns RED on the map list

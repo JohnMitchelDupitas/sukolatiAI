@@ -45,6 +45,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'phone' => 'encrypted',
         ];
     }
 
@@ -63,5 +64,21 @@ class User extends Authenticatable
     public function predictionLogs()
     {
         return $this->hasMany(PredictionLog::class);
+    }
+
+    /**
+     * Get all login histories for this user
+     */
+    public function loginHistories()
+    {
+        return $this->hasMany(LoginHistory::class);
+    }
+
+    /**
+     * Get the most recent login
+     */
+    public function latestLogin()
+    {
+        return $this->hasOne(LoginHistory::class)->latestOfMany();
     }
 }

@@ -29,4 +29,10 @@ class DiseaseDetection extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    // Link to metadata (verification and treatment data)
+    public function metadata()
+    {
+        return $this->hasOne(DiseaseDetectionsMetadata::class, 'detection_id');
+    }
 }

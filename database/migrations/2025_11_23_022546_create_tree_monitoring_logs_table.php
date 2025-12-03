@@ -11,25 +11,21 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // 2024_01_02_create_tree_monitoring_logs_table.php
         Schema::create('tree_monitoring_logs', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('cacao_tree_id')->constrained()->onDelete('cascade');
-            $table->foreignId('user_id')->constrained(); // Who inspected it?
-
-            // The Condition
-            $table->string('status'); // 'healthy', 'diseased', 'needs_pruning'
-            $table->string('disease_type')->nullable(); // 'black_pod_rot', 'stem_borer'
-            $table->text('remedy_applied')->nullable(); // 'fungicide_sprayed', 'pruned'
-
-            // Visual Evidence (Crucial for your image processing interest)
+            $table->foreignId('cacao_tree_id')->constrained('cacao_trees')->onDelete('cascade');
+            $table->foreignId('user_id')->nullable()->constrained('users')->onDelete('set null');
+            $table->enum('status', ['healthy', 'diseased'])->default('healthy');
+            $table->string('disease_type')->nullable();
+            $table->integer('pod_count')->default(0);
             $table->string('image_path')->nullable();
-
-            // Data for Inventory
-            $table->integer('pod_count')->default(0); // Estimated yield
-
             $table->date('inspection_date');
             $table->timestamps();
+
+            // Add indexes for better query performance
+            $table->index('cacao_tree_id');
+            $table->index('user_id');
+            $table->index('inspection_date');
         });
     }
 

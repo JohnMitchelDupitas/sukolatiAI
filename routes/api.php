@@ -16,6 +16,10 @@ use App\Http\Controllers\TreeLogController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\HarvestController;
 use App\Models\TreeMonitoringLogs;
+use App\Http\Controllers\AuditLogController;
+use App\Http\Controllers\LoginHistoryController;
+use App\Http\Controllers\AdminDashboardController;
+use App\Http\Controllers\UserController;
 
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
@@ -32,6 +36,12 @@ Route::get('/logs', [LogController::class, 'index']);
 // });
 
 Route::middleware('auth:sanctum')->group(function () {
+
+    // Admin Dashboard
+    Route::get('/admin/dashboard', [AdminDashboardController::class, 'index']);
+
+    // Admin - Users Management (only for admin)
+    Route::get('/admin/users', [UserController::class, 'index']);
 
     // Dashboard & Inventory
     Route::get('/inventory/dashboard', [InventoryController::class, 'dashboard']);
@@ -51,7 +61,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/farms/{farm}', [FarmController::class, 'destroy']);
 
     // Cacao Trees
-    Route::get('/farms/{farm}/cacao-trees', [CacaoTreeController::class, 'index']);
+    Route::get('/farms/{farm}/cacao-trees', [CacaoTreeController::class, 'indexByFarm']);
     Route::post('/farms/{farm}/cacao-trees', [CacaoTreeController::class, 'store']);
     Route::get('/cacao-trees/{cacaoTree}', [CacaoTreeController::class, 'show']);
     Route::put('/cacao-trees/{cacaoTree}', [CacaoTreeController::class, 'update']);
@@ -88,6 +98,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/harvest', [HarvestController::class, 'index']); // Get all user's harvest logs
     Route::get('/harvest/tree/{treeId}', [HarvestController::class, 'getByTree']); // Get harvest logs for specific tree
 
+    Route::get('/audits', [AuditLogController::class, 'index']);
+    Route::get('/audits/model/{modelType}/{modelId}', [AuditLogController::class, 'getByModel']);
+    Route::get('/audits/stats', [AuditLogController::class, 'getStats']);
+
+    // ✅ Login history routes
+    Route::get('/login-histories', [LoginHistoryController::class, 'myLoginHistories']);
+    Route::get('/admin/login-histories', [LoginHistoryController::class, 'getAllLoginHistories']);
 
 
 
@@ -101,4 +118,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // // Notifications
     // Route::get('/notifications', [NotificationController::class, 'index']);
+
+    // Debug routes
+    Route::get('/debug/tree-latest-log', [\App\Http\Controllers\DebugController::class, 'testLatestLog']);
 });

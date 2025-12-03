@@ -57,11 +57,17 @@ class GPredictionController extends Controller
             'pod_count'     => 'nullable|integer|min:0',
         ]);
 
-        return DB::transaction(function () use ($request) {
+        // Get authenticated user ID for audits
+        $userId = \Illuminate\Support\Facades\Auth::id();
+        \Illuminate\Support\Facades\Log::info('GPredictionController::detectAndLog', [
+            'user_id' => $userId,
+            'cacao_tree_id' => $request->cacao_tree_id
+        ]);
 
-            // -------------------------------------------------------
+        return DB::transaction(function () use ($request, $userId) {
+            // EVERYTHING inside this function is protected by transaction
+
             // STEP 1: FETCH HISTORY (To preserve counts/status)
-            // -------------------------------------------------------
             $lastLog = TreeMonitoringLogs::where('cacao_tree_id', $request->cacao_tree_id)
                         ->latest('id')
                         ->first();
@@ -70,9 +76,7 @@ class GPredictionController extends Controller
             $preservedDisease = $lastLog ? $lastLog->disease_type : null;
             $preservedCount  = $lastLog ? $lastLog->pod_count : 0;
 
-            // -------------------------------------------------------
             // STEP 2: RESOLVE DISEASE STATUS (AI Logic)
-            // -------------------------------------------------------
             $finalStatus = $preservedStatus;
             $finalDisease = $preservedDisease;
             $imagePath = null;
@@ -102,43 +106,52 @@ class GPredictionController extends Controller
             $finalStatus = ($diseaseName === 'Healthy') ? 'healthy' : 'diseased';
             $finalDisease = ($diseaseName === 'Healthy') ? null : $diseaseName;
 
-            // ✅ GET THE TREATMENT RECOMMENDATION
+            // GET THE TREATMENT RECOMMENDATION
             $treatment = $this->getPrescriptiveAction($diseaseName);
 
             // Save Detection Evidence
             DiseaseDetection::create([
-                'user_id' => $request->user() ? $request->user()->id : 1,
+                'user_id' => $userId,
                 'cacao_tree_id' => $request->cacao_tree_id,
                 'image_path' => $imagePath,
                 'detected_disease' => $diseaseName,
                 'confidence' => $topResult ? $topResult['confidence'] : 0.00,
                 'ai_response_log' => json_encode($aiResult),
             ]);
-        }            // -------------------------------------------------------
+        }
             // STEP 3: RESOLVE POD COUNT
-            // -------------------------------------------------------
             $finalPodCount = $preservedCount;
             if ($request->has('pod_count') && $request->pod_count !== null) {
                 $finalPodCount = $request->pod_count;
             }
 
-            // -------------------------------------------------------
-            // STEP 4: SAVE THE LOG
-            // -------------------------------------------------------
+            // STEP 4: SAVE THE LOG (this gets audited with user_id)
             $log = TreeMonitoringLogs::create([
                 'cacao_tree_id'   => $request->cacao_tree_id,
-                'user_id'         => $request->user() ? $request->user()->id : 1,
+                'user_id'         => $userId,
                 'status'          => $finalStatus,
                 'disease_type'    => $finalDisease,
                 'pod_count'       => $finalPodCount,
-                'image_path'      => $imagePath,
                 'inspection_date' => now(),
             ]);
 
-            // --- REMOVED THE CODE THAT UPDATED CACAO_TREES TABLE ---
+            // Create metadata with image if available
+            if ($imagePath) {
+                $log->metadata()->create([
+                    'image_path' => $imagePath,
+                ]);
+            }
+
+            \Illuminate\Support\Facades\Log::info(' TreeMonitoringLog created with audit', [
+                'log_id' => $log->id,
+                'user_id' => $log->user_id,
+                'cacao_tree_id' => $log->cacao_tree_id
+            ]);
+
+            // both operations succeeded is 2 saved succesfully
+
             // No more $tree->status = ...
             // No more SQL Error!
-
             return response()->json([
                 'message' => 'Tree Log Updated',
                 'new_status' => $finalStatus,
