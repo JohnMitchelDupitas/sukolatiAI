@@ -19,16 +19,16 @@ return new class extends Migration
         try {
             Log::info('🔄 [VERTICAL PARTITIONING] Starting vertical partitioning migration');
 
-            // ✅ Step 1: Vertical partition tree_monitoring_logs
+            // Step 1: Vertical partition tree_monitoring_logs
             $this->verticalPartitionTreeMonitoringLogs();
 
-            // ✅ Step 2: Vertical partition disease_detections
+            // step 2: Vertical partition disease_detections
             $this->verticalPartitionDiseaseDetections();
 
-            Log::info('✅ [VERTICAL PARTITIONING] Migration completed successfully');
+            Log::info('[VERTICAL PARTITIONING] Migration completed successfully');
 
         } catch (\Exception $e) {
-            Log::error('❌ [VERTICAL PARTITIONING] Migration failed', [
+            Log::error('[VERTICAL PARTITIONING] Migration failed', [
                 'error' => $e->getMessage(),
                 'line' => $e->getLine()
             ]);
@@ -51,10 +51,10 @@ return new class extends Migration
      */
     private function verticalPartitionTreeMonitoringLogs(): void
     {
-        Log::info('📊 [TREE_MONITORING_LOGS] Starting vertical partitioning');
+        Log::info('[TREE_MONITORING_LOGS] Starting vertical partitioning');
 
         try {
-            // ✅ Step 1: Create metadata table for images and timestamps
+            // Step 1: Create metadata table for images and timestamps
             if (!Schema::hasTable('tree_monitoring_logs_metadata')) {
                 Schema::create('tree_monitoring_logs_metadata', function (Blueprint $table) {
                     $table->id();
@@ -75,10 +75,10 @@ return new class extends Migration
                     $table->index('created_at');
                 });
 
-                Log::info('✅ [TREE_MONITORING_LOGS_METADATA] Table created');
+                Log::info('[TREE_MONITORING_LOGS_METADATA] Table created');
             }
 
-            // ✅ Step 2: Migrate existing data to metadata table
+            // Step 2: Migrate existing data to metadata table
             $existingLogs = DB::table('tree_monitoring_logs')->get();
 
             foreach ($existingLogs as $log) {
@@ -90,11 +90,11 @@ return new class extends Migration
                 ]);
             }
 
-            Log::info('✅ [TREE_MONITORING_LOGS] Data migrated to metadata table', [
+            Log::info('[TREE_MONITORING_LOGS] Data migrated to metadata table', [
                 'rows_migrated' => $existingLogs->count()
             ]);
 
-            // ✅ Step 3: Drop columns from main table (if they exist)
+            //  Step 3: Drop columns from main table (if they exist)
             if (Schema::hasTable('tree_monitoring_logs')) {
                 Schema::table('tree_monitoring_logs', function (Blueprint $table) {
                     // Drop image_path, created_at, updated_at
@@ -105,11 +105,11 @@ return new class extends Migration
                     // We'll manage them via the relationship
                 });
 
-                Log::info('✅ [TREE_MONITORING_LOGS] Large columns removed from main table');
+                Log::info('[TREE_MONITORING_LOGS] Large columns removed from main table');
             }
 
         } catch (\Exception $e) {
-            Log::error('❌ [TREE_MONITORING_LOGS] Vertical partitioning failed', [
+            Log::error(' [TREE_MONITORING_LOGS] Vertical partitioning failed', [
                 'error' => $e->getMessage()
             ]);
             throw $e;
@@ -131,10 +131,10 @@ return new class extends Migration
      */
     private function verticalPartitionDiseaseDetections(): void
     {
-        Log::info('📊 [DISEASE_DETECTIONS] Starting vertical partitioning');
+        Log::info(' [DISEASE_DETECTIONS] Starting vertical partitioning');
 
         try {
-            // ✅ Step 1: Create metadata table
+            // Step 1: Create metadata table
             if (!Schema::hasTable('disease_detections_metadata')) {
                 Schema::create('disease_detections_metadata', function (Blueprint $table) {
                     $table->id();
@@ -160,10 +160,10 @@ return new class extends Migration
                     $table->index('created_at');
                 });
 
-                Log::info('✅ [DISEASE_DETECTIONS_METADATA] Table created');
+                Log::info('[DISEASE_DETECTIONS_METADATA] Table created');
             }
 
-            // ✅ Step 2: Migrate existing data to metadata table
+            // Step 2: Migrate existing data to metadata table
             $existingDetections = DB::table('disease_detections')->get();
 
             foreach ($existingDetections as $detection) {
@@ -177,11 +177,11 @@ return new class extends Migration
                 ]);
             }
 
-            Log::info('✅ [DISEASE_DETECTIONS] Data migrated to metadata table', [
+            Log::info('[DISEASE_DETECTIONS] Data migrated to metadata table', [
                 'rows_migrated' => $existingDetections->count()
             ]);
 
-            // ✅ Step 3: Drop columns from main table
+            //  Step 3: Drop columns from main table
             if (Schema::hasTable('disease_detections')) {
                 Schema::table('disease_detections', function (Blueprint $table) {
                     // Drop rarely-used columns
@@ -196,11 +196,11 @@ return new class extends Migration
                     }
                 });
 
-                Log::info('✅ [DISEASE_DETECTIONS] Large columns removed from main table');
+                Log::info(' [DISEASE_DETECTIONS] Large columns removed from main table');
             }
 
         } catch (\Exception $e) {
-            Log::error('❌ [DISEASE_DETECTIONS] Vertical partitioning failed', [
+            Log::error('[DISEASE_DETECTIONS] Vertical partitioning failed', [
                 'error' => $e->getMessage()
             ]);
             throw $e;

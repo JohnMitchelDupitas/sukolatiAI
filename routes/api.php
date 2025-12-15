@@ -20,9 +20,11 @@ use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\LoginHistoryController;
 use App\Http\Controllers\AdminDashboardController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\AdvisoryController;
 
 Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login', [AuthController::class, 'login']);
+Route::post('/login', [AuthController::class, 'login']); // Admin only - for Vue admin app
+Route::post('/mobile/login', [AuthController::class, 'mobileLogin']); // Farmers + Admins - for Flutter mobile app
 
 Route::get('/logs', [LogController::class, 'index']);
 
@@ -40,6 +42,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Admin Dashboard
     Route::get('/admin/dashboard', [AdminDashboardController::class, 'index']);
 
+    // Advisory System
+    Route::get('/admin/advisories/recommended', [AdvisoryController::class, 'getRecommendedAdvisories']);
+    Route::post('/admin/advisories/send', [AdvisoryController::class, 'sendAdvisory']);
+
     // Admin - Users Management (only for admin)
     Route::get('/admin/users', [UserController::class, 'index']);
 
@@ -51,6 +57,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
 
     Route::get('/profile', [AuthController::class, 'profile']);
+    Route::put('/profile', [AuthController::class, 'updateProfile']);
     Route::post('/logout', [AuthController::class, 'logout']);
 
     // Farms
@@ -97,12 +104,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/harvest', [HarvestController::class, 'store']); // Create a new harvest log
     Route::get('/harvest', [HarvestController::class, 'index']); // Get all user's harvest logs
     Route::get('/harvest/tree/{treeId}', [HarvestController::class, 'getByTree']); // Get harvest logs for specific tree
+    Route::get('/harvest/forecast', [HarvestController::class, 'getForecastReport']); // Get harvest forecast report
 
     Route::get('/audits', [AuditLogController::class, 'index']);
     Route::get('/audits/model/{modelType}/{modelId}', [AuditLogController::class, 'getByModel']);
     Route::get('/audits/stats', [AuditLogController::class, 'getStats']);
 
-    // ✅ Login history routes
+    // Login history routes
     Route::get('/login-histories', [LoginHistoryController::class, 'myLoginHistories']);
     Route::get('/admin/login-histories', [LoginHistoryController::class, 'getAllLoginHistories']);
 
@@ -116,8 +124,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Route::get('/farms/{farm}/weather/fetch', [WeatherController::class, 'fetchWeather']);
     // Route::get('/farms/{farm}/weather/recent', [WeatherController::class, 'recent']);
 
-    // // Notifications
-    // Route::get('/notifications', [NotificationController::class, 'index']);
+    // Notifications
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::put('/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
 
     // Debug routes
     Route::get('/debug/tree-latest-log', [\App\Http\Controllers\DebugController::class, 'testLatestLog']);

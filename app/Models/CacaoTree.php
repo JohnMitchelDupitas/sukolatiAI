@@ -26,7 +26,7 @@ class CacaoTree extends Model implements Auditable
         'growth_stage'
     ];
 
-    // ✅ Track all fields for audit
+    // Track all fields for audit
     protected $auditInclude = [
         'farm_id',
         'tree_code',
@@ -40,15 +40,15 @@ class CacaoTree extends Model implements Auditable
         'growth_stage'
     ];
 
-    // ✅ Exclude timestamps
+    // Exclude timestamps
     protected $auditExclude = [
         'updated_at',
     ];
 
-    // ✅ Events to track
+    // Events to track
     protected $auditEvents = ['created', 'updated', 'deleted'];
 
-    // ✅ Return false to use default timestamps behavior
+    // Return false to use default timestamps behavior
     public function getAuditTimestamps(): bool
     {
         return false;
@@ -69,7 +69,7 @@ class CacaoTree extends Model implements Auditable
         return $this->hasMany(TreeMonitoringLogs::class, 'cacao_tree_id');
     }
 
-    // ❌ REMOVE THIS - The AuditableTrait already provides it!
+    // REMOVE THIS - The AuditableTrait already provides it!
     // public function audits()
     // {
     //     return $this->morphMany(\OwenIt\Auditing\Models\Audit::class, 'auditable');

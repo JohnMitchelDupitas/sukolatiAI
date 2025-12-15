@@ -43,6 +43,7 @@ class AuthController extends Controller
 
     /**
      * Login user and create login history
+     * This endpoint is for Vue admin app - only admins can login
      */
     public function login(Request $request)
     {
@@ -118,6 +119,76 @@ class AuthController extends Controller
     }
 
     /**
+     * Mobile login - allows both farmers and admins to login
+     * This endpoint is for Flutter mobile app
+     */
+    public function mobileLogin(Request $request)
+    {
+        Log::info('[MOBILE_LOGIN] Attempt started', [
+            'email' => $request->email,
+            'ip' => $request->ip()
+        ]);
+
+        $request->validate([
+            'email' => 'required|email',
+            'password' => 'required',
+        ]);
+
+        $user = User::where('email', $request->email)->first();
+
+        if (!$user || !Hash::check($request->password, $user->password)) {
+            Log::warning('[MOBILE_LOGIN] Invalid credentials', ['email' => $request->email]);
+            return response()->json(['message' => 'Invalid credentials'], 401);
+        }
+
+        // Both farmers and admins can login to mobile app
+        // No role restriction here
+
+        // CREATE LOGIN HISTORY
+        try {
+            LoginHistory::create([
+                'user_id' => $user->id,
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'login_at' => now(),
+            ]);
+
+            Log::info('[MOBILE_LOGIN] Login history recorded', [
+                'user_id' => $user->id,
+                'role' => $user->role,
+                'ip' => $request->ip()
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('[MOBILE_LOGIN] Failed to record login history', [
+                'error' => $e->getMessage()
+            ]);
+        }
+
+        // CREATE API TOKEN
+        $token = $user->createToken('mobile-api-token')->plainTextToken;
+
+        Log::info('[MOBILE_LOGIN] Login successful', [
+            'user_id' => $user->id,
+            'user_email' => $user->email,
+            'role' => $user->role
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Login successful',
+            'token' => $token,
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'role' => $user->role,
+                'farm_id' => $user->farm_id,
+            ]
+        ], 200);
+    }
+
+    /**
      * Logout user
      */
     public function logout(Request $request)
@@ -154,6 +225,41 @@ class AuthController extends Controller
         
         return response()->json([
             'success' => true,
+            'data' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'firstname' => $user->firstname,
+                'middlename' => $user->middlename,
+                'lastname' => $user->lastname,
+                'phone' => $user->phone,
+                'role' => $user->role,
+                'farm_id' => $user->farm_id,
+                'created_at' => $user->created_at,
+            ]
+        ]);
+    }
+
+    /**
+     * Update user profile
+     */
+    public function updateProfile(Request $request)
+    {
+        $user = $request->user();
+        
+        $validated = $request->validate([
+            'firstname' => 'sometimes|string|max:255',
+            'middlename' => 'nullable|string|max:255',
+            'lastname' => 'sometimes|string|max:255',
+            'email' => 'sometimes|email|unique:users,email,' . $user->id,
+            'phone' => 'nullable|string|max:20',
+        ]);
+
+        $user->update($validated);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Profile updated successfully',
             'data' => [
                 'id' => $user->id,
                 'name' => $user->name,

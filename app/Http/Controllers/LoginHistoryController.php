@@ -79,18 +79,30 @@ class LoginHistoryController extends Controller
             // Search by user name or email
             if ($search) {
                 $query->whereHas('user', function ($q) use ($search) {
-                    $q->where('name', 'like', "%{$search}%")
+                    $q->where('firstname', 'like', "%{$search}%")
+                      ->orWhere('lastname', 'like', "%{$search}%")
                       ->orWhere('email', 'like', "%{$search}%");
                 });
             }
 
             $histories = $query->paginate($perPage)
                 ->through(function ($history) {
+                    $user = $history->user;
+                    $userName = null;
+                    if ($user) {
+                        $nameParts = array_filter([
+                            $user->firstname,
+                            $user->middlename,
+                            $user->lastname
+                        ]);
+                        $userName = implode(' ', $nameParts);
+                    }
+                    
                     return [
                         'id' => $history->id,
                         'user_id' => $history->user_id,
-                        'user_name' => $history->user?->name,
-                        'user_email' => $history->user?->email,
+                        'user_name' => $userName,
+                        'user_email' => $user?->email,
                         'ip_address' => $history->ip_address,
                         'user_agent' => $history->user_agent,
                         'login_at' => $history->login_at->format('Y-m-d H:i:s'),

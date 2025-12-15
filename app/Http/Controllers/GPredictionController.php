@@ -51,11 +51,62 @@ class GPredictionController extends Controller
     }
     public function detectAndLog(Request $request)
     {
-        $request->validate([
-            'cacao_tree_id' => 'required|exists:cacao_trees,id',
-            'image'         => 'nullable|image|max:10000',
-            'pod_count'     => 'nullable|integer|min:0',
+        // Log raw request details for debugging
+        \Illuminate\Support\Facades\Log::info('GPredictionController::detectAndLog - Raw request details', [
+            'content_type' => $request->header('Content-Type'),
+            'content_length' => $request->header('Content-Length'),
+            'method' => $request->method(),
+            'has_file' => $request->hasFile('image'),
+            'all_files' => $request->allFiles(),
+            'all_input' => $request->all(),
+            'file_size' => $request->hasFile('image') ? $request->file('image')->getSize() : null,
+            'file_mime' => $request->hasFile('image') ? $request->file('image')->getMimeType() : null,
+            'file_name' => $request->hasFile('image') ? $request->file('image')->getClientOriginalName() : null,
+            'is_valid' => $request->hasFile('image') ? $request->file('image')->isValid() : null,
+            'error' => $request->hasFile('image') ? $request->file('image')->getError() : null,
+            'cacao_tree_id' => $request->input('cacao_tree_id'),
+            'php_upload_max_filesize' => ini_get('upload_max_filesize'),
+            'php_post_max_size' => ini_get('post_max_size'),
+            'php_max_file_uploads' => ini_get('max_file_uploads'),
         ]);
+
+        // First, check if file is being received
+        if (!$request->hasFile('image')) {
+            \Illuminate\Support\Facades\Log::warning('GPredictionController::detectAndLog - No file received', [
+                'request_keys' => array_keys($request->all()),
+                'files' => $request->allFiles(),
+                'content_type' => $request->header('Content-Type'),
+            ]);
+        }
+
+        try {
+            $validated = $request->validate([
+                'cacao_tree_id' => 'required|exists:cacao_trees,id',
+                'image'         => 'required|file|mimes:jpeg,jpg,png|max:10000', // Changed to 'required' and 'file' instead of 'image'
+                'pod_count'     => 'nullable|integer|min:0',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            \Illuminate\Support\Facades\Log::error('GPredictionController::detectAndLog - Validation failed', [
+                'errors' => $e->errors(),
+                'request_data' => $request->all(),
+                'has_file' => $request->hasFile('image'),
+            ]);
+            // Return more detailed error
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+                'debug' => [
+                    'has_file' => $request->hasFile('image'),
+                    'file_info' => $request->hasFile('image') ? [
+                        'size' => $request->file('image')->getSize(),
+                        'mime' => $request->file('image')->getMimeType(),
+                        'name' => $request->file('image')->getClientOriginalName(),
+                        'is_valid' => $request->file('image')->isValid(),
+                        'error' => $request->file('image')->getError(),
+                    ] : null,
+                ],
+            ], 422);
+        }
 
         // Get authenticated user ID for audits
         $userId = \Illuminate\Support\Facades\Auth::id();
@@ -150,8 +201,8 @@ class GPredictionController extends Controller
 
             // both operations succeeded is 2 saved succesfully
 
-            // No more $tree->status = ...
-            // No more SQL Error!
+
+
             return response()->json([
                 'message' => 'Tree Log Updated',
                 'new_status' => $finalStatus,

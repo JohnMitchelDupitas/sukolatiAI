@@ -26,11 +26,11 @@ class CacaoTreeController extends Controller
 
         // For admin, get all trees. For farmers, get only their trees
         $query = CacaoTree::with(['latestLog', 'farm']);
-        
+
         if ($user->role !== 'admin') {
             $query->whereIn('farm_id', $user->farms()->pluck('id'));
         }
-        
+
         $trees = $query->get()
             ->map(function($tree) {
                 // Return pod_count from tree_monitoring_logs (latestLog)
@@ -146,9 +146,13 @@ class CacaoTreeController extends Controller
     public function show(CacaoTree $cacaoTree)
     {
         try {
-            // Load the tree with latestLog relationship
-            // latestLog contains pod_count from tree_monitoring_logs
-            $cacaoTree->load('latestLog');
+            // Load the tree with latestLog, farm, and user relationships
+            $cacaoTree->load(['latestLog.metadata', 'farm.user', 'detections' => function($query) {
+                $query->latest()->limit(1);
+            }]);
+
+            // Get latest detection with confidence
+            $latestDetection = $cacaoTree->detections->first();
 
             //  Return pod_count from tree_monitoring_logs (latestLog)
             return response()->json([
@@ -165,6 +169,18 @@ class CacaoTreeController extends Controller
                 'growth_stage' => $cacaoTree->growth_stage,
                 'created_at' => $cacaoTree->created_at,
                 'updated_at' => $cacaoTree->updated_at,
+                'farm' => $cacaoTree->farm ? [
+                    'id' => $cacaoTree->farm->id,
+                    'name' => $cacaoTree->farm->name,
+                    'location' => $cacaoTree->farm->location,
+                    'user' => $cacaoTree->farm->user ? [
+                        'id' => $cacaoTree->farm->user->id,
+                        'firstname' => $cacaoTree->farm->user->firstname,
+                        'middlename' => $cacaoTree->farm->user->middlename,
+                        'lastname' => $cacaoTree->farm->user->lastname,
+                        'email' => $cacaoTree->farm->user->email,
+                    ] : null,
+                ] : null,
                 'latest_log' => $cacaoTree->latestLog ? [
                     'id' => $cacaoTree->latestLog->id,
                     'status' => $cacaoTree->latestLog->status,
@@ -172,6 +188,17 @@ class CacaoTreeController extends Controller
                     'pod_count' => $cacaoTree->latestLog->pod_count,
                     'image_path' => $cacaoTree->latestLog->metadata?->image_path,
                     'inspection_date' => $cacaoTree->latestLog->inspection_date,
+                    'created_at' => $cacaoTree->latestLog->created_at,
+                    'metadata' => $cacaoTree->latestLog->metadata ? [
+                        'image_path' => $cacaoTree->latestLog->metadata->image_path,
+                    ] : null,
+                ] : null,
+                'latest_detection' => $latestDetection ? [
+                    'id' => $latestDetection->id,
+                    'detected_disease' => $latestDetection->detected_disease,
+                    'confidence' => $latestDetection->confidence,
+                    'image_path' => $latestDetection->image_path,
+                    'created_at' => $latestDetection->created_at,
                 ] : null,
             ]);
         } catch (\Exception $e) {
@@ -255,7 +282,7 @@ class CacaoTreeController extends Controller
         $totalTrees = $trees->count();
 
         // 2. Calculate total pods from tree_monitoring_logs (latestLog)
-        // ✅ This is the REAL pod count from tree_monitoring_logs table
+        // This is the REAL pod count from tree_monitoring_logs table
         $totalPods = $trees->sum(function($tree) {
             return $tree->latestLog?->pod_count ?? 0;
         });

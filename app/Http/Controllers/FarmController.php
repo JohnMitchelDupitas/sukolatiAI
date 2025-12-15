@@ -15,16 +15,27 @@ class FarmController extends Controller
     }
     public function store(Request $r)
     {
+        $user = $r->user();
+        
         $data = $r->validate([
             'name' => 'required|string',
             'location' => 'nullable|string',
             'latitude' => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
             'soil_type' => 'nullable|string',
-            'area_hectares' => 'nullable|numeric'
+            'area_hectares' => 'nullable|numeric',
+            'user_id' => 'nullable|exists:users,id' // Allow admin to specify user_id
         ]);
-        $data['user_id'] = $r->user()->id;
+        
+        // If admin provides user_id, use it; otherwise use authenticated user's id
+        if ($user->role === 'admin' && isset($data['user_id'])) {
+            $data['user_id'] = $data['user_id'];
+        } else {
+            $data['user_id'] = $user->id;
+        }
+        
         $farm = Farm::create($data);
+        $farm->load('user');
         return response()->json($farm, 201);
     }
     public function show(Farm $farm)

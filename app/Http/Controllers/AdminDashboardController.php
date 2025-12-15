@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\CacaoTree;
 use App\Models\TreeMonitoringLogs;
 use App\Models\Farm;
+use App\Models\HarvestLog;
 use OwenIt\Auditing\Models\Audit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,27 +22,26 @@ class AdminDashboardController extends Controller
     {
         try {
             // 1. Total Registered Farmers - direct count from users table
-            $totalFarmers = User::count();
+            $totalFarmers = User::where('role', 'farmer')->count();
 
-            // 2. Total Farms - direct count from farms table
-            $totalFarms = Farm::count();
+            // 2. Total Inventory (Total Trees Mapped) - direct count from cacao_trees table
+            $totalInventory = CacaoTree::count();
 
-            // 3. Total Trees Mapped - direct count from cacao_trees table
+            // 3. Infection Rate - % of trees currently flagged as diseased
+            // Get trees with latest monitoring logs that have disease
             $totalTrees = CacaoTree::count();
+            $diseasedTrees = CacaoTree::whereHas('latestLog', function($query) {
+                $query->whereNotNull('disease_type')
+                      ->where('disease_type', '!=', '');
+            })->count();
+            $infectionRate = $totalTrees > 0 ? round(($diseasedTrees / $totalTrees) * 100, 2) : 0;
 
-            // 4. Active Disease Cases - count from tree_monitoring_logs where disease_type is not null/empty and created today
-            $today = now()->startOfDay();
-            $activeDiseaseCases = TreeMonitoringLogs::whereDate('created_at', $today)
-                ->whereNotNull('disease_type')
-                ->where('disease_type', '!=', '')
-                ->count();
-
-            // 5. Total Estimated Yield (kg) - sum pod_count from tree_monitoring_logs table
+            // 4. Regional Yield Forecast - Total estimated harvest (kg) for the season
             $totalPods = DB::table('tree_monitoring_logs')
                 ->whereNotNull('pod_count')
                 ->sum('pod_count');
             // Estimate: 1 pod ≈ 0.04 kg of dried beans
-            $estimatedYieldKg = round($totalPods * 0.04, 2);
+            $regionalYieldForecast = round($totalPods * 0.04, 2);
 
             // 6. Disease Distribution - count by status from tree_monitoring_logs
             $diseaseDistribution = $this->getDiseaseDistribution();
@@ -49,18 +49,37 @@ class AdminDashboardController extends Controller
             // 7. Recent Activity Feed - get recent audits and monitoring logs
             $recentActivities = $this->getRecentActivities();
 
+            // 8. Top Harvested Trees - rank trees by total pods harvested
+            $topHarvestedTrees = $this->getTopHarvestedTrees(5);
+
+            // 9. Top Harvested Farms - rank farms by total pods harvested
+            $topHarvestedFarms = $this->getTopHarvestedFarms(5);
+
+            // 8. New Infections per Week (for trend line chart)
+            $infectionTrend = $this->getInfectionTrend();
+
+            // 9. Recommended Advisories
+            $recommendedAdvisories = $this->getRecommendedAdvisories();
+
+            // 10. Intervention Plans (Resource Allocation)
+            $interventionPlans = $this->getInterventionPlans();
+
             return response()->json([
                 'success' => true,
                 'data' => [
                     'kpis' => [
                         'total_farmers' => $totalFarmers,
-                        'total_farms' => $totalFarms,
-                        'total_trees' => $totalTrees,
-                        'active_disease_cases' => $activeDiseaseCases,
-                        'estimated_yield_kg' => $estimatedYieldKg,
+                        'total_inventory' => $totalInventory,
+                        'infection_rate' => $infectionRate,
+                        'regional_yield_forecast' => $regionalYieldForecast,
                     ],
                     'disease_distribution' => $diseaseDistribution,
+                    'infection_trend' => $infectionTrend,
+                    'recommended_advisories' => $recommendedAdvisories,
+                    'intervention_plans' => $interventionPlans,
                     'recent_activities' => $recentActivities,
+                    'top_harvested_trees' => $topHarvestedTrees,
+                    'top_harvested_farms' => $topHarvestedFarms,
                 ]
             ]);
 
@@ -75,51 +94,120 @@ class AdminDashboardController extends Controller
 
     /**
      * Get disease distribution for pie chart
-     * Direct database query - count by disease_type from tree_monitoring_logs
+     * Dynamically gets all unique diseases from latest monitoring logs (current state)
      */
     private function getDiseaseDistribution()
     {
-        // Count healthy trees (status = 'healthy' or disease_type is null/empty)
-        $healthy = TreeMonitoringLogs::where(function($query) {
-            $query->where('status', 'healthy')
-                  ->orWhere(function($q) {
-                      $q->whereNull('disease_type')
-                        ->orWhere('disease_type', '');
-                  });
-        })->count();
+        $distribution = [];
+        
+        // Get all trees with their latest logs to get current disease state
+        $trees = CacaoTree::with('latestLog')->get();
+        
+        // Count diseases from latest logs only (current state)
+        $diseaseCounts = [];
+        $healthyCount = 0;
+        
+        foreach ($trees as $tree) {
+            $log = $tree->latestLog;
+            
+            if (!$log) {
+                // Tree with no logs is considered healthy
+                $healthyCount++;
+                continue;
+            }
+            
+            // Check disease_type first
+            $diseaseType = $log->disease_type;
+            $status = $log->status;
+            
+            // Determine if healthy
+            $isHealthy = false;
+            if (empty($diseaseType) || 
+                strtolower(trim($diseaseType)) === 'healthy' ||
+                strtolower(trim($diseaseType)) === 'null') {
+                if (empty($status) || 
+                    strtolower(trim($status)) === 'healthy' ||
+                    strtolower(trim($status)) === 'null') {
+                    $isHealthy = true;
+                }
+            }
+            
+            if ($isHealthy) {
+                $healthyCount++;
+            } else {
+                // Use disease_type if available, otherwise use status
+                $diseaseName = !empty($diseaseType) ? trim($diseaseType) : trim($status);
+                
+                if (!empty($diseaseName) && strtolower($diseaseName) !== 'healthy') {
+                    if (!isset($diseaseCounts[$diseaseName])) {
+                        $diseaseCounts[$diseaseName] = 0;
+                    }
+                    $diseaseCounts[$diseaseName]++;
+                }
+            }
+        }
+        
+        // Add healthy count
+        if ($healthyCount > 0) {
+            $distribution[] = ['label' => 'Healthy', 'value' => $healthyCount, 'color' => '#28a745'];
+        }
+        
+        // Get all unique disease types from counts
+        arsort($diseaseCounts); // Sort by count descending
 
-        // Count Black Pod cases
-        $blackPod = TreeMonitoringLogs::where(function($query) {
-            $query->where('disease_type', 'like', '%Black Pod%')
-                  ->orWhere('disease_type', 'like', '%black pod%')
-                  ->orWhere('status', 'like', '%Black Pod%');
-        })->count();
-
-        // Count Pod Borer cases
-        $podBorer = TreeMonitoringLogs::where(function($query) {
-            $query->where('disease_type', 'like', '%Pod Borer%')
-                  ->orWhere('disease_type', 'like', '%pod borer%')
-                  ->orWhere('disease_type', 'like', '%Borer%')
-                  ->orWhere('status', 'like', '%Pod Borer%');
-        })->count();
-
-        // Count other diseases
-        $other = TreeMonitoringLogs::whereNotNull('disease_type')
-            ->where('disease_type', '!=', '')
-            ->where('disease_type', 'not like', '%Black Pod%')
-            ->where('disease_type', 'not like', '%black pod%')
-            ->where('disease_type', 'not like', '%Pod Borer%')
-            ->where('disease_type', 'not like', '%pod borer%')
-            ->where('disease_type', 'not like', '%Borer%')
-            ->where('status', '!=', 'healthy')
-            ->count();
-
-        return [
-            ['label' => 'Healthy', 'value' => $healthy, 'color' => '#28a745'],
-            ['label' => 'Black Pod', 'value' => $blackPod, 'color' => '#dc3545'],
-            ['label' => 'Pod Borer', 'value' => $podBorer, 'color' => '#ffc107'],
-            ['label' => 'Other', 'value' => $other, 'color' => '#6c757d'],
+        // Color palette for diseases
+        $colors = [
+            '#dc3545', // Red - Black Pod
+            '#ffc107', // Yellow - Pod Borer
+            '#17a2b8', // Cyan - Frosty Pod
+            '#6f42c1', // Purple - Witches Broom
+            '#fd7e14', // Orange - Canker
+            '#e83e8c', // Pink - Other diseases
+            '#20c997', // Teal
+            '#6610f2', // Indigo
+            '#f8d7da', // Light Red
+            '#fff3cd', // Light Yellow
         ];
+
+        $colorIndex = 0;
+        foreach ($diseaseCounts as $diseaseName => $count) {
+            // Use specific colors for known diseases
+            $color = $this->getDiseaseColor($diseaseName, $colors, $colorIndex);
+            
+            $distribution[] = [
+                'label' => $diseaseName,
+                'value' => $count,
+                'color' => $color
+            ];
+            
+            $colorIndex++;
+        }
+
+        return $distribution;
+    }
+
+    /**
+     * Get color for a specific disease
+     */
+    private function getDiseaseColor($diseaseName, $colors, $colorIndex)
+    {
+        $diseaseLower = strtolower($diseaseName);
+        
+        // Map known diseases to specific colors
+        if (strpos($diseaseLower, 'black pod') !== false) {
+            return '#dc3545'; // Red
+        } elseif (strpos($diseaseLower, 'pod borer') !== false || strpos($diseaseLower, 'borer') !== false) {
+            return '#ffc107'; // Yellow
+        } elseif (strpos($diseaseLower, 'frosty pod') !== false || strpos($diseaseLower, 'frosty') !== false) {
+            return '#17a2b8'; // Cyan
+        } elseif (strpos($diseaseLower, 'witches') !== false || strpos($diseaseLower, 'broom') !== false) {
+            return '#6f42c1'; // Purple
+        } elseif (strpos($diseaseLower, 'canker') !== false) {
+            return '#fd7e14'; // Orange
+        } else {
+            // Use color from palette, cycling through if needed
+            return $colors[$colorIndex % count($colors)];
+        }
     }
 
     /**
@@ -287,6 +375,446 @@ class AdminDashboardController extends Controller
         ];
         
         return $colors[$event] ?? '#6c757d';
+    }
+
+    /**
+     * Get top harvested trees ranked by total pods harvested
+     */
+    private function getTopHarvestedTrees($limit = 10)
+    {
+        $topTrees = HarvestLog::select(
+                'harvest_logs.tree_id',
+                'cacao_trees.tree_code',
+                'cacao_trees.id as cacao_tree_id',
+                'farms.name as farm_name',
+                'users.firstname',
+                'users.lastname',
+                DB::raw('SUM(harvest_logs.pod_count) as total_pods_harvested'),
+                DB::raw('COUNT(harvest_logs.id) as harvest_count')
+            )
+            ->join('cacao_trees', 'harvest_logs.tree_id', '=', 'cacao_trees.id')
+            ->join('farms', 'cacao_trees.farm_id', '=', 'farms.id')
+            ->leftJoin('users', 'farms.user_id', '=', 'users.id')
+            ->groupBy('harvest_logs.tree_id', 'cacao_trees.tree_code', 'cacao_trees.id', 'farms.name', 'users.firstname', 'users.lastname')
+            ->orderBy('total_pods_harvested', 'desc')
+            ->limit($limit)
+            ->get()
+            ->map(function ($item, $index) {
+                $userName = trim(($item->firstname ?? '') . ' ' . ($item->lastname ?? ''));
+                return [
+                    'rank' => $index + 1,
+                    'tree_id' => $item->tree_id,
+                    'tree_code' => $item->tree_code ?? 'Tree #' . $item->tree_id,
+                    'farm_name' => $item->farm_name ?? 'Unknown Farm',
+                    'farmer_name' => $userName ?: 'Unknown',
+                    'total_pods_harvested' => (int) $item->total_pods_harvested,
+                    'harvest_count' => (int) $item->harvest_count,
+                    'estimated_weight_kg' => round($item->total_pods_harvested * 0.04, 2),
+                ];
+            });
+
+        return $topTrees->toArray();
+    }
+
+    /**
+     * Get top harvested farms ranked by total pods harvested
+     */
+    private function getTopHarvestedFarms($limit = 10)
+    {
+        $topFarms = HarvestLog::select(
+                'farms.id as farm_id',
+                'farms.name as farm_name',
+                DB::raw('SUM(harvest_logs.pod_count) as total_pods_harvested'),
+                DB::raw('COUNT(DISTINCT harvest_logs.tree_id) as tree_count'),
+                DB::raw('COUNT(harvest_logs.id) as harvest_count'),
+                'users.firstname',
+                'users.lastname'
+            )
+            ->join('cacao_trees', 'harvest_logs.tree_id', '=', 'cacao_trees.id')
+            ->join('farms', 'cacao_trees.farm_id', '=', 'farms.id')
+            ->leftJoin('users', 'farms.user_id', '=', 'users.id')
+            ->groupBy('farms.id', 'farms.name', 'users.firstname', 'users.lastname')
+            ->orderBy('total_pods_harvested', 'desc')
+            ->limit($limit)
+            ->get()
+            ->map(function ($item, $index) {
+                $userName = trim(($item->firstname ?? '') . ' ' . ($item->lastname ?? ''));
+                return [
+                    'rank' => $index + 1,
+                    'farm_id' => $item->farm_id,
+                    'farm_name' => $item->farm_name ?? 'Unknown Farm',
+                    'farmer_name' => $userName ?: 'Unknown',
+                    'total_pods_harvested' => (int) $item->total_pods_harvested,
+                    'tree_count' => (int) $item->tree_count,
+                    'harvest_count' => (int) $item->harvest_count,
+                    'estimated_weight_kg' => round($item->total_pods_harvested * 0.04, 2),
+                ];
+            });
+
+        return $topFarms->toArray();
+    }
+
+    /**
+     * Get infection trend - new infections per week
+     */
+    private function getInfectionTrend($weeks = 12)
+    {
+        $trend = [];
+        $now = now();
+        
+        for ($i = $weeks - 1; $i >= 0; $i--) {
+            $weekStart = $now->copy()->subWeeks($i)->startOfWeek();
+            $weekEnd = $now->copy()->subWeeks($i)->endOfWeek();
+            
+            // Count new disease detections in this week
+            $newInfections = TreeMonitoringLogs::whereBetween('created_at', [$weekStart, $weekEnd])
+                ->whereNotNull('disease_type')
+                ->where('disease_type', '!=', '')
+                ->count();
+            
+            $trend[] = [
+                'week' => $weekStart->format('M d'),
+                'week_start' => $weekStart->format('Y-m-d'),
+                'week_end' => $weekEnd->format('Y-m-d'),
+                'new_infections' => $newInfections
+            ];
+        }
+        
+        return $trend;
+    }
+
+    /**
+     * Get recommended advisories based on disease rates by location
+     */
+    private function getRecommendedAdvisories()
+    {
+        try {
+            $advisories = [];
+            
+            // Get all unique locations from farms
+            $locations = \App\Models\Farm::whereNotNull('location')
+                ->where('location', '!=', '')
+                ->distinct()
+                ->pluck('location')
+                ->filter()
+                ->values();
+
+            foreach ($locations as $location) {
+                // Get farms in this location
+                $farmsInLocation = \App\Models\Farm::where('location', $location)->pluck('id');
+                
+                // Get trees in these farms
+                $treesInLocation = \App\Models\CacaoTree::whereIn('farm_id', $farmsInLocation)->pluck('id');
+                
+                if ($treesInLocation->isEmpty()) {
+                    continue;
+                }
+
+                // Get total trees in location
+                $totalTrees = $treesInLocation->count();
+
+                // Get diseased trees by disease type (using latest logs)
+                $diseaseStats = TreeMonitoringLogs::whereIn('cacao_tree_id', $treesInLocation)
+                    ->whereNotNull('disease_type')
+                    ->where('disease_type', '!=', '')
+                    ->select('disease_type', DB::raw('COUNT(DISTINCT cacao_tree_id) as infected_count'))
+                    ->groupBy('disease_type')
+                    ->get();
+
+                foreach ($diseaseStats as $stat) {
+                    $infectionRate = ($stat->infected_count / $totalTrees) * 100;
+                    $diseaseType = $stat->disease_type;
+
+                    // Check if infection rate exceeds threshold
+                    $threshold = $this->getDiseaseThreshold($diseaseType);
+                    
+                    if ($infectionRate >= $threshold) {
+                        $advisory = $this->generateAdvisory($location, $diseaseType, $infectionRate, $stat->infected_count, $totalTrees);
+                        $advisories[] = $advisory;
+                    }
+                }
+            }
+
+            return $advisories;
+
+        } catch (\Exception $e) {
+            Log::error('Error getting recommended advisories: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Get disease threshold for triggering advisory
+     */
+    private function getDiseaseThreshold($diseaseType)
+    {
+        $thresholds = [
+            'Black Pod Disease' => 15,
+            'Black Pod' => 15,
+            'Pod Borer' => 20,
+            'Pod Borer Disease' => 20,
+        ];
+
+        // Check for partial matches
+        foreach ($thresholds as $key => $threshold) {
+            if (stripos($diseaseType, $key) !== false) {
+                return $threshold;
+            }
+        }
+
+        // Default threshold
+        return 15;
+    }
+
+    /**
+     * Generate advisory message based on disease type and location
+     */
+    private function generateAdvisory($location, $diseaseType, $infectionRate, $infectedCount, $totalTrees)
+    {
+        $prescription = $this->getPrescription($diseaseType);
+        
+        return [
+            'id' => md5($location . $diseaseType),
+            'location' => $location,
+            'disease_type' => $diseaseType,
+            'infection_rate' => round($infectionRate, 2),
+            'infected_trees' => $infectedCount,
+            'total_trees' => $totalTrees,
+            'reason' => "{$diseaseType} infection rate exceeded " . $this->getDiseaseThreshold($diseaseType) . "% in this area.",
+            'title' => "ALERT: High Risk of {$diseaseType} in {$location}",
+            'prescription' => $prescription,
+            'priority' => $infectionRate >= 25 ? 'high' : ($infectionRate >= 20 ? 'medium' : 'low')
+        ];
+    }
+
+    /**
+     * Get prescription message based on disease type
+     */
+    private function getPrescription($diseaseType)
+    {
+        $prescriptions = [
+            'Black Pod Disease' => 'ALERT: High risk of Black Pod detected in your area. Please perform sanitary pruning and spray copper fungicide immediately. Remove and destroy infected pods to prevent further spread.',
+            'Black Pod' => 'ALERT: High risk of Black Pod detected in your area. Please perform sanitary pruning and spray copper fungicide immediately. Remove and destroy infected pods to prevent further spread.',
+            'Pod Borer' => 'ALERT: High risk of Pod Borer infestation detected in your area. Please apply appropriate insecticides and monitor your trees regularly. Remove and destroy infested pods immediately.',
+            'Pod Borer Disease' => 'ALERT: High risk of Pod Borer infestation detected in your area. Please apply appropriate insecticides and monitor your trees regularly. Remove and destroy infested pods immediately.',
+        ];
+
+        // Check for partial matches
+        foreach ($prescriptions as $key => $prescription) {
+            if (stripos($diseaseType, $key) !== false) {
+                return $prescription;
+            }
+        }
+
+        // Default prescription
+        return "ALERT: High risk of {$diseaseType} detected in your area. Please take immediate action to prevent further spread. Consult with agricultural experts for specific treatment recommendations.";
+    }
+
+    /**
+     * Get intervention plans - Resource allocation recommendations
+     * Converts biological data into logistics and operations data
+     */
+    private function getInterventionPlans()
+    {
+        try {
+            $plans = [];
+            
+            // Get all unique locations (sectors) from farms
+            $locations = Farm::whereNotNull('location')
+                ->where('location', '!=', '')
+                ->distinct()
+                ->pluck('location')
+                ->filter()
+                ->values();
+
+            foreach ($locations as $location) {
+                // Get farms in this location (sector)
+                $farmsInLocation = Farm::where('location', $location)
+                    ->with('cacaoTrees')
+                    ->get();
+                
+                if ($farmsInLocation->isEmpty()) {
+                    continue;
+                }
+
+                // Get all trees in these farms
+                $treeIds = [];
+                $farmNames = [];
+                foreach ($farmsInLocation as $farm) {
+                    $treeIds = array_merge($treeIds, $farm->cacaoTrees->pluck('id')->toArray());
+                    $farmNames[] = $farm->name;
+                }
+
+                if (empty($treeIds)) {
+                    continue;
+                }
+
+                $totalTrees = count($treeIds);
+
+                // Analyze disease outbreaks by disease type
+                $diseaseAnalysis = TreeMonitoringLogs::whereIn('cacao_tree_id', $treeIds)
+                    ->whereNotNull('disease_type')
+                    ->where('disease_type', '!=', '')
+                    ->select('disease_type', DB::raw('COUNT(DISTINCT cacao_tree_id) as infected_count'))
+                    ->groupBy('disease_type')
+                    ->get();
+
+                foreach ($diseaseAnalysis as $analysis) {
+                    $diseaseType = $analysis->disease_type;
+                    $infectedCount = $analysis->infected_count;
+                    $infectionRate = ($infectedCount / $totalTrees) * 100;
+                    
+                    // Only create intervention plan for significant outbreaks (>= 10% infection rate)
+                    if ($infectionRate >= 10) {
+                        $severity = $this->getSeverityLevel($infectionRate);
+                        $resources = $this->calculateResources($diseaseType, $infectedCount, $farmsInLocation->count(), $severity);
+                        
+                        $plans[] = [
+                            'id' => md5($location . $diseaseType),
+                            'target_location' => $location,
+                            'target_farms' => $farmNames,
+                            'farm_count' => $farmsInLocation->count(),
+                            'issue' => $this->formatIssue($diseaseType, $infectionRate, $infectedCount, $totalTrees),
+                            'severity' => $severity,
+                            'recommendations' => $resources,
+                            'total_trees' => $totalTrees,
+                            'infected_trees' => $infectedCount,
+                            'infection_rate' => round($infectionRate, 2),
+                        ];
+                    }
+                }
+            }
+
+            // Sort by severity (high to low) and infection rate
+            usort($plans, function($a, $b) {
+                $severityOrder = ['critical' => 4, 'severe' => 3, 'moderate' => 2, 'mild' => 1];
+                $aSeverity = $severityOrder[$a['severity']] ?? 0;
+                $bSeverity = $severityOrder[$b['severity']] ?? 0;
+                
+                if ($aSeverity !== $bSeverity) {
+                    return $bSeverity - $aSeverity;
+                }
+                
+                return $b['infection_rate'] <=> $a['infection_rate'];
+            });
+
+            return $plans;
+
+        } catch (\Exception $e) {
+            Log::error('Error getting intervention plans: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Get severity level based on infection rate
+     */
+    private function getSeverityLevel($infectionRate)
+    {
+        if ($infectionRate >= 40) return 'critical';
+        if ($infectionRate >= 25) return 'severe';
+        if ($infectionRate >= 15) return 'moderate';
+        return 'mild';
+    }
+
+    /**
+     * Calculate resource needs based on disease, infected trees, and severity
+     */
+    private function calculateResources($diseaseType, $infectedTrees, $farmCount, $severity)
+    {
+        $resources = [];
+        
+        // Base calculations
+        $severityMultiplier = [
+            'critical' => 1.5,
+            'severe' => 1.2,
+            'moderate' => 1.0,
+            'mild' => 0.8,
+        ];
+        $multiplier = $severityMultiplier[$severity] ?? 1.0;
+
+        // Agricultural Technicians
+        // 1 technician per 3-5 farms, more for severe outbreaks
+        $techniciansNeeded = max(1, ceil($farmCount / (5 / $multiplier)));
+        $resources[] = [
+            'type' => 'personnel',
+            'resource' => 'Agricultural Technicians',
+            'quantity' => $techniciansNeeded,
+            'description' => "Deploy {$techniciansNeeded} Agricultural Technician" . ($techniciansNeeded > 1 ? 's' : '') . " for training and on-site support.",
+            'priority' => $severity === 'critical' || $severity === 'severe' ? 'high' : 'medium',
+        ];
+
+        // Disease-specific resources
+        if (stripos($diseaseType, 'Pod Borer') !== false || stripos($diseaseType, 'Borer') !== false) {
+            // Pod Borer requires sleeving bags
+            // Estimate: 2-3 bags per infected tree (for protection and replacement)
+            $bagsNeeded = ceil($infectedTrees * 2.5 * $multiplier);
+            $resources[] = [
+                'type' => 'supplies',
+                'resource' => 'Sleeving Bags',
+                'quantity' => $bagsNeeded,
+                'description' => "Subsidize/Distribute {$bagsNeeded} Sleeving Bags to these farmers for pod protection.",
+                'priority' => 'high',
+            ];
+
+            // Insecticides for Pod Borer
+            $insecticideLiters = ceil($infectedTrees * 0.1 * $multiplier);
+            $resources[] = [
+                'type' => 'supplies',
+                'resource' => 'Insecticides',
+                'quantity' => $insecticideLiters,
+                'unit' => 'liters',
+                'description' => "Provide {$insecticideLiters} liters of appropriate insecticides for treatment.",
+                'priority' => $severity === 'critical' || $severity === 'severe' ? 'high' : 'medium',
+            ];
+        }
+
+        if (stripos($diseaseType, 'Black Pod') !== false) {
+            // Black Pod requires fungicides
+            $fungicideLiters = ceil($infectedTrees * 0.15 * $multiplier);
+            $resources[] = [
+                'type' => 'supplies',
+                'resource' => 'Copper Fungicides',
+                'quantity' => $fungicideLiters,
+                'unit' => 'liters',
+                'description' => "Provide {$fungicideLiters} liters of copper fungicide for treatment.",
+                'priority' => 'high',
+            ];
+
+            // Pruning tools for sanitary pruning
+            $pruningTools = ceil($farmCount / 2);
+            $resources[] = [
+                'type' => 'equipment',
+                'resource' => 'Pruning Tools',
+                'quantity' => $pruningTools,
+                'description' => "Distribute {$pruningTools} sets of pruning tools for sanitary pruning.",
+                'priority' => 'medium',
+            ];
+        }
+
+        // General resources for any disease outbreak
+        if ($severity === 'critical' || $severity === 'severe') {
+            $resources[] = [
+                'type' => 'personnel',
+                'resource' => 'Extension Officers',
+                'quantity' => max(1, ceil($farmCount / 5)),
+                'description' => "Assign Extension Officer" . (ceil($farmCount / 5) > 1 ? 's' : '') . " for continuous monitoring and support.",
+                'priority' => 'high',
+            ];
+        }
+
+        return $resources;
+    }
+
+    /**
+     * Format issue description
+     */
+    private function formatIssue($diseaseType, $infectionRate, $infectedCount, $totalTrees)
+    {
+        $severity = $this->getSeverityLevel($infectionRate);
+        $severityText = ucfirst($severity);
+        
+        return "{$severityText} {$diseaseType} Outbreak - {$infectedCount} out of {$totalTrees} trees affected ({$infectionRate}% infection rate)";
     }
 }
 
